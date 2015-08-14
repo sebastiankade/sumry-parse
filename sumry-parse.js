@@ -1496,49 +1496,67 @@
 
     Parse._ajax = function (method, url, data, success, error) {
         var options = {
-            success: success,
-            error: error
+          success: success,
+          error: error
         };
 
         if (Parse._useXDomainRequest()) {
-            return Parse._ajaxIE8(method, url, data)._thenRunCallbacks(options);
+          return Parse._ajaxIE8(method, url, data)._thenRunCallbacks(options);
         }
 
         var promise = new Parse.Promise();
-        var handled = false;
+        var attempts = 0;
 
-        var xhr = new Parse.XMLHttpRequest();
-        xhr.onreadystatechange = function () {
+        var dispatch = function() {
+          var handled = false;
+          var xhr = new Parse.XMLHttpRequest();
+
+          xhr.onreadystatechange = function() {
             if (xhr.readyState === 4) {
-                if (handled) {
-                    return;
-                }
-                handled = true;
+              if (handled) {
+                return;
+              }
+              handled = true;
 
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    var response;
-                    try {
-                        response = JSON.parse(xhr.responseText);
-                    } catch (e) {
-                        promise.reject(e);
-                    }
-                    if (response) {
-                        promise.resolve(response, xhr.status, xhr);
-                    }
-                } else {
-                    promise.reject(xhr);
+              if (xhr.status >= 200 && xhr.status < 300) {
+                var response;
+                try {
+                  response = JSON.parse(xhr.responseText);
+                } catch (e) {
+                  promise.reject(e);
                 }
+                if (response) {
+                  promise.resolve(response, xhr.status, xhr);
+                }
+              } else if (xhr.status >= 500) { // Retry on 5XX
+                if (++attempts < 5) {
+                  // Exponentially-growing delay
+                  var delay = Math.round(
+                    Math.random() * 125 * Math.pow(2, attempts)
+                  );
+                  setTimeout(dispatch, delay);
+                } else {
+                  // After 5 retries, fail
+                  promise.reject(xhr);
+                }
+              } else {
+                promise.reject(xhr);
+              }
             }
-        };
-        xhr.open(method, url, true);
-        xhr.setRequestHeader("Content-Type", "text/plain");  // avoid pre-flight.
-        if (Parse._isNode) {
+          };
+
+          xhr.open(method, url, true);
+          xhr.setRequestHeader('Content-Type', 'text/plain');  // avoid pre-flight.
+          if (Parse._isNode) {
             // Add a special user agent just for request from node.js.
             xhr.setRequestHeader("User-Agent",
-                "Parse/" + Parse.VERSION +
-                    " (NodeJS " + process.versions.node + ")");
-        }
-        xhr.send(data);
+                                 "Parse/" + Parse.VERSION +
+                                 " (NodeJS " + process.versions.node + ")");
+          }
+          xhr.send(data);
+        };
+
+        dispatch();
         return promise._thenRunCallbacks(options);
     };
 
