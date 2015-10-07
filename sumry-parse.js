@@ -4433,8 +4433,17 @@
         }
 
         options = options || {};
+
+        var token;
+
+        _.first(list, function(obj){
+            token = obj.permissionToken();
+            return token;
+        });
+
         return Parse.Object._deepSaveAsync(list, {
-            useMasterKey: options.useMasterKey
+            useMasterKey: options.useMasterKey,
+            sessionToken: token
         })._thenRunCallbacks(options);
     };
 
